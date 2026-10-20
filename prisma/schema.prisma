@@ -1,0 +1,440 @@
+// Prisma schema for AI B2B Growth & Sales Copilot
+// CV Arba'in Jaya Mandiri — maklon herbal & kosmetik
+// Covers BRD Modules A (Prospecting), B (WhatsApp AI Sales Assistant),
+// C (Marketing/GEO Content), and D (Unified Growth Dashboard).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & roles (NFR-04 data privacy, access by authorized parties)
+// ---------------------------------------------------------------------------
+
+enum Role {
+  MARKETING
+  SALES
+  MANAGEMENT
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      Role     @default(SALES)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  prospectsOwned Prospect[]      @relation("ProspectOwner")
+  notes          ProspectNote[]
+  meetings       Meeting[]       @relation("MeetingOwner")
+  contentAuthored Content[]      @relation("ContentAuthor")
+  contentReviewed Content[]      @relation("ContentReviewer")
+  activities     ActivityLog[]
+  contacts       Contact[]       @relation("UserContact")
+}
+
+// ---------------------------------------------------------------------------
+// Module A — AI Lead Prospecting
+// ---------------------------------------------------------------------------
+
+enum BusinessSegment {
+  NEW_BRAND          // Pemilik brand baru / startup
+  UMKM               // UMKM yang ingin mengembangkan produk
+  BEAUTY_CLINIC      // Klinik kecantikan
+  HERBAL_STORE       // Toko herbal
+  INFLUENCER         // Influencer / personal brand
+  PRIVATE_LABEL      // Perusahaan private label
+  OTHER
+}
+
+enum ProspectStatus {
+  NEW
+  REVIEWED
+  CONTACTED
+  INTERESTED
+  QUALIFIED
+  MEETING_SCHEDULED
+  NOT_A_FIT
+}
+
+model Prospect {
+  id            String          @id @default(cuid())
+  companyName   String
+  segment       BusinessSegment @default(OTHER)
+  website       String?
+  location      String?
+  contactChannel String?        // kanal kontak bisnis yang sah
+  contactPerson String?
+  phone         String?
+  email         String?
+
+  // AI recommendation (BR#2: must have reviewable reason; BR#3: incomplete flagged, not fabricated)
+  fitIndication String?         // indikasi kecocokan dengan layanan maklon
+  priorityScore Int?            // 0-100, AI recommendation only
+  scoreReason   String?         // alasan penilaian yang dapat ditinjau
+  dataSource    String?         // sumber informasi
+  lastVerifiedAt DateTime?      // tanggal terakhir diverifikasi
+  isIncomplete  Boolean         @default(false) // ditandai jika field wajib kurang
+
+  status        ProspectStatus  @default(NEW)
+
+  // Deduplication key (normalized company name + website/email) — FR-03
+  dedupeKey     String          @unique
+
+  ownerId       String?
+  owner         User?           @relation("ProspectOwner", fields: [ownerId], references: [id])
+
+  notes         ProspectNote[]
+  conversations Conversation[]
+  meetings      Meeting[]
+  contacts      Contact[]       @relation("ProspectContact")
+
+  // Module E — cached warm-intro path result (reviewable, recomputed on demand)
+  warmIntroScore  Int?          // 0-100 kekuatan jalur perkenalan terbaik
+  warmIntroPath   String?       // ringkasan jalur: "Budi → Rina → PT X"
+  warmIntroReason String?       // alasan yang dapat ditinjau
+
+  // ICP discovery provenance
+  discoveryRunId  String?       // dari run discovery mana prospek ini berasal
+  isSimulated     Boolean       @default(false) // true jika hasil mode simulasi
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([segment])
+  @@index([status])
+}
+
+model ProspectNote {
+  id         String   @id @default(cuid())
+  prospectId String
+  prospect   Prospect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     User?    @relation(fields: [authorId], references: [id])
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@index([prospectId])
+}
+
+// ---------------------------------------------------------------------------
+// ICP-driven Discovery (Module A enhancement)
+// Team defines an Ideal Customer Profile (segment + area + criteria); the system
+// sources candidate prospects, cleans/dedupes/scores/qualifies them, and the
+// team reviews before saving to the pipeline. Each run is audited (BR#10).
+// Source may be a real data provider or a labeled SIMULATION (BR#2/BR#3:
+// never fabricate data presented as real; always record source + verified date).
+// ---------------------------------------------------------------------------
+
+enum DiscoverySource {
+  SIMULATION   // dataset contoh berlabel jelas (akses provider belum tersedia)
+  GOOGLE_PLACES
+  APOLLO
+  MANUAL
+}
+
+model DiscoveryRun {
+  id          String          @id @default(cuid())
+  // ICP definition
+  segment     BusinessSegment @default(OTHER)
+  area        String          // daerah / kota target
+  keywords    String[]        @default([])
+  minScore    Int             @default(0) // ambang skor kualifikasi
+
+  source      DiscoverySource @default(SIMULATION)
+
+  // Result summary (audit)
+  candidatesFound    Int      @default(0)
+  duplicatesSkipped  Int      @default(0)
+  qualifiedCount     Int      @default(0)
+  savedCount         Int      @default(0)
+
+  createdAt   DateTime        @default(now())
+
+  @@index([segment])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Module E — Relationship Path Finder & Context Graph
+// Finds the shortest/strongest warm-introduction path from the internal
+// relationship network to a target prospect. Warm intros increase the
+// probability to deal vs. cold outreach. Path finding is DETERMINISTIC
+// (Dijkstra by edge strength), not AI (BRD §15).
+// ---------------------------------------------------------------------------
+
+enum ContactKind {
+  TEAM         // anggota tim internal (titik awal jalur)
+  PAST_CLIENT  // klien lama / existing
+  PARTNER      // mitra bisnis / vendor / reseller
+  COMMUNITY    // tokoh komunitas / asosiasi
+  PERSON       // individu lain yang dikenal
+}
+
+model Contact {
+  id        String      @id @default(cuid())
+  name      String
+  kind      ContactKind @default(PERSON)
+  org       String?     // organisasi / afiliasi
+  role      String?     // peran / jabatan
+  notes     String?
+  source    String?     // sumber data relasi (sah & tercatat) — privacy/consent
+  consent   Boolean     @default(false) // boleh dimintai bantuan intro?
+
+  // A contact may correspond to a prospect company (bridge into the target).
+  prospectId String?
+  prospect   Prospect?  @relation("ProspectContact", fields: [prospectId], references: [id])
+
+  // Optional link to a team user (contact that is also a system user).
+  userId     String?
+  user       User?      @relation("UserContact", fields: [userId], references: [id])
+
+  // Graph edges (undirected: stored once, traversed both ways).
+  relFrom    Relationship[] @relation("RelFrom")
+  relTo      Relationship[] @relation("RelTo")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind])
+  @@index([prospectId])
+}
+
+enum RelationshipType {
+  COLLEAGUE     // rekan kerja / satu tim
+  FRIEND        // teman / kenalan pribadi
+  FORMER_CLIENT // pernah menjadi klien
+  BUSINESS      // relasi bisnis / vendor / reseller
+  COMMUNITY     // satu komunitas / asosiasi
+  FAMILY        // keluarga
+  REFERRAL      // sumber referral sebelumnya
+}
+
+model Relationship {
+  id        String           @id @default(cuid())
+  fromId    String
+  from      Contact          @relation("RelFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId      String
+  to        Contact          @relation("RelTo", fields: [toId], references: [id], onDelete: Cascade)
+  type      RelationshipType @default(BUSINESS)
+  strength  Int              @default(50) // 1-100, makin tinggi makin kuat/dekat
+  reason    String?          // alasan yang dapat ditinjau (BR#2)
+  source    String?          // sumber data relasi
+  createdAt DateTime         @default(now())
+
+  @@unique([fromId, toId])
+  @@index([fromId])
+  @@index([toId])
+}
+
+// ---------------------------------------------------------------------------
+// Module B — WhatsApp AI Sales Assistant
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  UNQUALIFIED
+  EARLY_STAGE
+  QUALIFIED
+  MEETING_SCHEDULED
+  MEETING_COMPLETED
+  FOLLOW_UP
+  CONVERTED
+  LOST
+}
+
+enum ConversationChannel {
+  WHATSAPP_SIMULATED // simulasi, diberi label jelas (Risk: integrasi WA belum tersedia)
+  WHATSAPP
+  WEB
+}
+
+model Conversation {
+  id            String              @id @default(cuid())
+  channel       ConversationChannel @default(WHATSAPP_SIMULATED)
+  contactName   String?
+  contactPhone  String?
+
+  leadStatus    LeadStatus          @default(UNQUALIFIED)
+
+  // Captured qualification signals (Lead Qualification Framework, section 7)
+  productInterest     String?
+  businessStage       String?
+  targetMarket        String?
+  developmentReadiness String?
+  timeline            String?
+  budgetReadiness     String?
+  decisionAuthority   String?
+
+  // AI-generated summary for sales (FR-09)
+  needsSummary  String?
+
+  // Human handoff (FR-10, NFR-02)
+  handoffRequested Boolean  @default(false)
+  handoffReason    String?
+
+  prospectId    String?
+  prospect      Prospect? @relation(fields: [prospectId], references: [id])
+
+  messages      Message[]
+  meetings      Meeting[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Response-time metric support (NFR-03, dashboard)
+  firstResponseMs Int?
+
+  @@index([leadStatus])
+}
+
+enum MessageSender {
+  PROSPECT
+  AI
+  HUMAN // sales staff after handoff
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         MessageSender
+  body           String
+  // Grounding (NFR-05): which FAQ/knowledge entries the AI answer was based on
+  groundedOnIds  String[]      @default([])
+  isFallback     Boolean       @default(false) // AI acknowledged limitation / escalated
+  createdAt      DateTime      @default(now())
+
+  @@index([conversationId])
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge base / FAQ (NFR-05 grounding, NFR-06 editable without code)
+// ---------------------------------------------------------------------------
+
+enum KnowledgeCategory {
+  COMPANY_PROFILE
+  SERVICE_CATALOG
+  PROCESS
+  LEGALITY
+  FAQ
+  CLAIM_GUIDELINE // panduan klaim produk (BR#7, NFR-08)
+}
+
+model KnowledgeEntry {
+  id        String            @id @default(cuid())
+  category  KnowledgeCategory @default(FAQ)
+  question  String            // or topic/title
+  answer    String
+  keywords  String[]          @default([])
+  isApproved Boolean          @default(true) // only approved info is used for grounding
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([category])
+}
+
+// ---------------------------------------------------------------------------
+// Meetings (FR-11, FR-14, dashboard attendance)
+// ---------------------------------------------------------------------------
+
+enum MeetingStatus {
+  SCHEDULED
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+model Meeting {
+  id             String        @id @default(cuid())
+  title          String
+  scheduledAt    DateTime
+  status         MeetingStatus @default(SCHEDULED)
+  notes          String?
+
+  prospectId     String?
+  prospect       Prospect?     @relation(fields: [prospectId], references: [id])
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  ownerId        String?
+  owner          User?         @relation("MeetingOwner", fields: [ownerId], references: [id])
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Module C — AI Marketing & GEO Content
+// ---------------------------------------------------------------------------
+
+enum ContentStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  REJECTED
+}
+
+model Content {
+  id            String          @id @default(cuid())
+  title         String
+  segment       BusinessSegment @default(OTHER)
+  goal          String?         // tujuan kampanye
+  body          String          // draft content (markdown)
+  status        ContentStatus   @default(DRAFT)
+
+  // SEO/GEO recommendations (FR-13)
+  metaTitle       String?
+  metaDescription String?
+  headings        String[]      @default([])
+  faqPairs        Json?         // [{q,a}] untuk struktur GEO
+  keywords        String[]      @default([])
+  geoScore        Int?          // 0-100 heuristic readiness score
+
+  // Claim validation (BR#7, NFR-08)
+  claimsValidated Boolean       @default(false)
+  claimNotes      String?
+
+  authorId      String?
+  author        User?           @relation("ContentAuthor", fields: [authorId], references: [id])
+  reviewerId    String?
+  reviewer      User?           @relation("ContentReviewer", fields: [reviewerId], references: [id])
+
+  publishedAt   DateTime?
+
+  // Attribution (FR-16, dashboard content-to-lead)
+  impressions   Int             @default(0)
+  visits        Int             @default(0)
+  attributedLeads Int           @default(0)
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([status])
+  @@index([segment])
+}
+
+// ---------------------------------------------------------------------------
+// Activity log (BR#10 — reviewable AI activity, audit)
+// ---------------------------------------------------------------------------
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String   // e.g. "prospect.import", "ai.qualify", "content.generate"
+  entity    String?  // e.g. "Prospect:cuid"
+  detail    Json?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
