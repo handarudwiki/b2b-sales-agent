@@ -1,13 +1,35 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import {
+  PiBuildings,
+  PiChatText,
+  PiCircleNotch,
+  PiDatabase,
+  PiEnvelope,
+  PiFloppyDisk,
+  PiGlobe,
+  PiMapPin,
+  PiPhone,
+  PiSquaresFour,
+  PiUser,
+} from "react-icons/pi";
 import { createProspect } from "@/app/actions";
-import { buttonClass, inputClass, labelClass } from "@/components/ui";
+import {
+  Alert,
+  Field,
+  buttonClass,
+  inputClass,
+  selectClass,
+  textareaClass,
+} from "@/components/ui";
+import { useTopLoaderWhile } from "@/components/top-loader";
 import type { BusinessSegment } from "@prisma/client";
 
 export function ProspectForm({ segments }: { segments: [BusinessSegment, string][] }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  useTopLoaderWhile(pending);
 
   function handleSubmit(formData: FormData) {
     setError(null);
@@ -18,64 +40,61 @@ export function ProspectForm({ segments }: { segments: [BusinessSegment, string]
   }
 
   return (
-    <form action={handleSubmit} className="space-y-4">
-      <div>
-        <label className={labelClass}>Nama Perusahaan / Brand *</label>
+    <form action={handleSubmit} className="space-y-5">
+      <Field label="Nama Perusahaan / Brand *" icon={PiBuildings}>
         <input name="companyName" required className={inputClass} placeholder="mis. Glow Aesthetic Clinic" />
-      </div>
+      </Field>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Segmen</label>
-          <select name="segment" className={inputClass} defaultValue="">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <Field label="Segmen" icon={PiSquaresFour}>
+          <select name="segment" className={selectClass} defaultValue="">
             <option value="">Deteksi otomatis</option>
             {segments.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className={labelClass}>Lokasi</label>
+        </Field>
+        <Field label="Lokasi" icon={PiMapPin}>
           <input name="location" className={inputClass} placeholder="mis. Jakarta" />
-        </div>
+        </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Website / Profil</label>
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <Field label="Website / Profil" icon={PiGlobe}>
           <input name="website" className={inputClass} placeholder="mis. glowclinic.co.id" />
-        </div>
-        <div>
-          <label className={labelClass}>Narahubung</label>
+        </Field>
+        <Field label="Narahubung" icon={PiUser}>
           <input name="contactPerson" className={inputClass} />
-        </div>
+        </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Email</label>
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <Field label="Email" icon={PiEnvelope}>
           <input name="email" type="email" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>Telepon / WhatsApp</label>
+        </Field>
+        <Field label="Telepon / WhatsApp" icon={PiPhone}>
           <input name="phone" className={inputClass} />
-        </div>
+        </Field>
       </div>
 
-      <div>
-        <label className={labelClass}>Indikasi Kecocokan (opsional)</label>
-        <textarea name="fitIndication" rows={2} className={inputClass} placeholder="mis. Ingin mengembangkan lini skincare sendiri" />
-      </div>
+      <Field label="Indikasi Kecocokan (opsional)" icon={PiChatText}>
+        <textarea
+          name="fitIndication"
+          rows={3}
+          className={textareaClass}
+          placeholder="mis. Ingin mengembangkan lini skincare sendiri"
+        />
+      </Field>
 
-      <div>
-        <label className={labelClass}>Sumber Data</label>
+      <Field label="Sumber Data" icon={PiDatabase}>
         <input name="dataSource" className={inputClass} placeholder="mis. Instagram, referral, pameran" />
-      </div>
+      </Field>
 
-      {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+      {error && <Alert tone="danger">{error}</Alert>}
 
-      <div className="flex gap-3">
-        <button type="submit" className={buttonClass("primary")} disabled={pending}>
+      <div className="border-t border-line pt-5">
+        <button type="submit" className={buttonClass("primary", "lg")} disabled={pending}>
+          {pending ? <PiCircleNotch className="animate-spin" /> : <PiFloppyDisk />}
           {pending ? "Menyimpan..." : "Simpan Prospek"}
         </button>
       </div>

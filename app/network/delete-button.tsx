@@ -1,7 +1,9 @@
 "use client";
 
 import { useTransition } from "react";
+import { PiCircleNotch, PiTrash } from "react-icons/pi";
 import { deleteContact, deleteRelationship } from "@/app/actions";
+import { useTopLoaderWhile } from "@/components/top-loader";
 
 export function DeleteButton({
   id,
@@ -11,6 +13,7 @@ export function DeleteButton({
   kind: "contact" | "relationship";
 }) {
   const [pending, startTransition] = useTransition();
+  useTopLoaderWhile(pending);
 
   function handleClick() {
     const fd = new FormData();
@@ -23,12 +26,14 @@ export function DeleteButton({
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       disabled={pending}
-      className="rounded-md px-2 py-1 text-xs text-muted hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+      aria-label="Hapus"
       title="Hapus"
+      className="grid size-8 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
     >
-      {pending ? "..." : "✕"}
+      {pending ? <PiCircleNotch className="size-4 animate-spin" /> : <PiTrash className="size-4" />}
     </button>
   );
 }

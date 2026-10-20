@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
+import { AppHeader } from "@/components/app-header";
+import { TopLoaderProvider } from "@/components/top-loader";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
 });
 
@@ -27,33 +28,25 @@ export default function RootLayout({
   return (
     <html
       lang="id"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${jakarta.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full">
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="min-w-0 flex-1">
-            <div className="flex h-12 items-center justify-between border-b border-border bg-white px-8">
-              <p className="text-[11px] font-medium text-muted">
-                Workspace <span className="mx-2 text-slate-300">/</span>{" "}
-                <span className="text-foreground">Overview</span>
-              </p>
-              <div className="flex items-center gap-5 text-[11px] text-muted">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  Semua sistem normal
-                </span>
-                <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border text-muted">
-                  ◌
-                </span>
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-300 text-[10px] font-semibold text-white">
-                  AF
-                </span>
-              </div>
-            </div>
+      <body className="flex min-h-full flex-col">
+        <TopLoaderProvider>
+          <AppHeader />
+          <main className="mx-auto w-full max-w-360 flex-1 px-4 pb-16 sm:px-6 lg:px-10">
             {children}
           </main>
-        </div>
+          <footer className="mx-auto w-full max-w-360 px-4 pb-8 sm:px-6 lg:px-10">
+            <div className="flex flex-col gap-2 border-t border-line pt-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                <span className="font-semibold text-ink-2">CV Arba&apos;in Jaya Mandiri</span>{" "}
+                · AI membantu tim sales bekerja lebih efektif, bukan menggantikan
+                konsultasi dan keputusan manusia.
+              </p>
+              <p className="shrink-0">Prospera · Growth &amp; Sales Copilot</p>
+            </div>
+          </footer>
+        </TopLoaderProvider>
       </body>
     </html>
   );

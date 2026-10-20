@@ -1,8 +1,26 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import {
+  PiBriefcase,
+  PiBuildings,
+  PiCircleNotch,
+  PiDatabase,
+  PiPlus,
+  PiTag,
+  PiTarget,
+  PiUser,
+} from "react-icons/pi";
 import { createContact } from "@/app/actions";
-import { buttonClass, inputClass, labelClass } from "@/components/ui";
+import {
+  Alert,
+  Field,
+  buttonClass,
+  checkboxClass,
+  inputClass,
+  selectClass,
+} from "@/components/ui";
+import { useTopLoaderWhile } from "@/components/top-loader";
 import { contactKindLabels } from "@/lib/labels";
 import type { ContactKind } from "@prisma/client";
 
@@ -15,6 +33,7 @@ export function ContactForm({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  useTopLoaderWhile(pending);
 
   function handleSubmit(formData: FormData) {
     setError(null);
@@ -25,48 +44,43 @@ export function ContactForm({
   }
 
   return (
-    <form action={handleSubmit} className="space-y-3">
-      <div>
-        <label className={labelClass}>Nama *</label>
+    <form action={handleSubmit} className="space-y-4">
+      <Field label="Nama *" icon={PiUser}>
         <input name="name" required className={inputClass} placeholder="mis. Ibu Sari" />
-      </div>
+      </Field>
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelClass}>Jenis</label>
-          <select name="kind" className={inputClass} defaultValue="PERSON">
+        <Field label="Jenis" icon={PiTag}>
+          <select name="kind" className={selectClass} defaultValue="PERSON">
             {KINDS.map((k) => (
               <option key={k} value={k}>{contactKindLabels[k]}</option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className={labelClass}>Organisasi</label>
+        </Field>
+        <Field label="Organisasi" icon={PiBuildings}>
           <input name="org" className={inputClass} />
-        </div>
+        </Field>
       </div>
-      <div>
-        <label className={labelClass}>Peran</label>
+      <Field label="Peran" icon={PiBriefcase}>
         <input name="role" className={inputClass} placeholder="mis. Owner" />
-      </div>
-      <div>
-        <label className={labelClass}>Jembatan ke Prospek (opsional)</label>
-        <select name="prospectId" className={inputClass} defaultValue="">
+      </Field>
+      <Field label="Jembatan ke prospek (opsional)" icon={PiTarget}>
+        <select name="prospectId" className={selectClass} defaultValue="">
           <option value="">— tidak terhubung ke prospek —</option>
           {prospects.map((p) => (
             <option key={p.id} value={p.id}>{p.companyName}</option>
           ))}
         </select>
-      </div>
-      <div>
-        <label className={labelClass}>Sumber Data</label>
+      </Field>
+      <Field label="Sumber data" icon={PiDatabase}>
         <input name="source" className={inputClass} placeholder="mis. CRM, catatan sales" />
-      </div>
-      <label className="flex items-center gap-2 text-sm text-foreground">
-        <input type="checkbox" name="consent" />
+      </Field>
+      <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-[13px] text-ink transition-colors hover:border-line-strong">
+        <input type="checkbox" name="consent" className={checkboxClass} />
         Bersedia dimintai bantuan perkenalan
       </label>
-      {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+      {error && <Alert tone="danger">{error}</Alert>}
       <button className={`${buttonClass("primary")} w-full`} disabled={pending}>
+        {pending ? <PiCircleNotch className="animate-spin" /> : <PiPlus />}
         {pending ? "Menyimpan..." : "Tambah Kontak"}
       </button>
     </form>

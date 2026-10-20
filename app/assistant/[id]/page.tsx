@@ -1,15 +1,41 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { Roboto } from "next/font/google";
+import type { ReactNode } from "react";
+import type { IconType } from "react-icons";
+import {
+  PiCalendarPlus,
+  PiChatCircleDots,
+  PiClipboardText,
+  PiHandshake,
+  PiLightning,
+  PiListChecks,
+  PiPhone,
+  PiTag,
+  PiWhatsappLogo,
+} from "react-icons/pi";
 import { prisma } from "@/lib/prisma";
-import { PageHeader, Card, Badge } from "@/components/ui";
-import { buttonClass, inputClass, labelClass } from "@/components/ui";
+import {
+  Alert,
+  Avatar,
+  Badge,
+  Card,
+  CardHeader,
+  Meter,
+  BackLink,
+  inputClass,
+  labelClass,
+  selectClass,
+} from "@/components/ui";
+import { DateTimePicker } from "@/components/date-time-picker";
+import { SubmitButton } from "@/components/submit-button";
+import { WhatsAppSimulator, type ChatMessage } from "@/components/whatsapp-simulator";
+import { avatarColor } from "@/components/tokens";
 import {
   leadStatusLabels,
   leadStatusColors,
   channelLabels,
 } from "@/lib/labels";
 import {
-  sendMessage,
   updateQualification,
   requestHandoff,
   setLeadStatus,
@@ -17,6 +43,12 @@ import {
 } from "@/app/actions";
 import { formatMs } from "@/lib/metrics";
 import type { LeadStatus } from "@prisma/client";
+
+const roboto = Roboto({
+  variable: "--font-roboto",
+  subsets: ["latin"],
+  weight: ["400", "500"],
+});
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +73,26 @@ const QUAL_FIELDS: { key: string; label: string; placeholder: string }[] = [
   { key: "decisionAuthority", label: "Otoritas keputusan", placeholder: "pengambil keputusan?" },
 ];
 
+const SUGGESTIONS = [
+  "Apa itu jasa maklon?",
+  "Bagaimana tahapan prosesnya?",
+  "Apakah bisa bantu urus izin BPOM?",
+  "Apa yang perlu disiapkan sebelum konsultasi?",
+  "Berapa harganya?",
+];
+
+function dayLabel(date: Date, now: Date) {
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diff = Math.round((startOf(now) - startOf(date)) / 86400000);
+  if (diff === 0) return "Hari ini";
+  if (diff === 1) return "Kemarin";
+  return date.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function timeLabel(date: Date) {
+  return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+}
+
 export default async function ConversationPage({
   params,
 }: {
@@ -62,148 +114,189 @@ export default async function ConversationPage({
     budgetReadiness: convo.budgetReadiness,
     decisionAuthority: convo.decisionAuthority,
   } as Record<string, string | null>;
+  const filled = QUAL_FIELDS.filter((f) => signals[f.key]?.trim()).length;
+
+  const now = new Date();
+  const chat: ChatMessage[] = convo.messages.map((m) => ({
+    id: m.id,
+    sender: m.sender,
+    body: m.body,
+    time: timeLabel(m.createdAt),
+    day: dayLabel(m.createdAt, now),
+    grounded: m.groundedOnIds.length > 0,
+    fallback: m.isFallback,
+  }));
+  const animateIntro =
+    convo.messages.length === 1 &&
+    convo.messages[0].sender === "AI" &&
+    now.getTime() - convo.createdAt.getTime() < 20000;
+
+  const name = convo.contactName || "Calon klien";
 
   return (
     <div>
-      <PageHeader
-        title={convo.contactName || "Percakapan"}
-        subtitle={`${channelLabels[convo.channel]} · Median respons AI pertama: ${formatMs(convo.firstResponseMs)}`}
-        action={
-          <Link href="/assistant" className={buttonClass("secondary")}>
-            ← Kembali
-          </Link>
-        }
-      />
+      <div className="flex animate-fade-up flex-wrap items-center justify-between gap-3 pb-5 pt-6">
+        <BackLink href="/assistant" label="Sales Assistant" />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge icon={PiWhatsappLogo} className="bg-emerald-50 text-emerald-700">
+            {channelLabels[convo.channel]}
+          </Badge>
+          <Badge dot className={leadStatusColors[convo.leadStatus]}>
+            {leadStatusLabels[convo.leadStatus]}
+          </Badge>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 gap-6 p-8 lg:grid-cols-3">
-        {/* Chat */}
-        <div className="lg:col-span-2">
-          <Card className="flex h-[600px] flex-col p-0">
-            {convo.handoffRequested && (
-              <div className="border-b border-border bg-orange-50 px-4 py-2 text-sm text-orange-700">
-                🤝 Percakapan ini sudah diteruskan ke tim sales (human handoff). AI tidak
-                lagi membalas otomatis.
-              </div>
-            )}
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
-              {convo.messages.map((m) => {
-                const isProspect = m.sender === "PROSPECT";
-                return (
-                  <div key={m.id} className={`flex ${isProspect ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                        isProspect
-                          ? "bg-primary text-primary-foreground"
-                          : m.sender === "HUMAN"
-                            ? "bg-indigo-100 text-indigo-900"
-                            : "bg-slate-100 text-foreground"
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap">{m.body}</p>
-                      <p className={`mt-1 text-[10px] ${isProspect ? "text-violet-100" : "text-muted"}`}>
-                        {m.sender === "AI" ? "Asisten AI" : m.sender === "HUMAN" ? "Sales" : "Calon klien"}
-                        {m.isFallback && " · fallback/eskalasi"}
-                        {m.groundedOnIds.length > 0 && " · 📚 berbasis FAQ"}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <form action={sendMessage} className="flex gap-2 border-t border-border p-3">
-              <input type="hidden" name="conversationId" value={convo.id} />
-              <input
-                name="body"
-                required
-                autoComplete="off"
-                className={inputClass}
-                placeholder={
-                  convo.handoffRequested
-                    ? "Balas sebagai calon klien (AI tidak merespons)..."
-                    : "Ketik pesan calon klien..."
-                }
-              />
-              <button className={buttonClass("primary")}>Kirim</button>
-            </form>
-          </Card>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,430px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,470px)_minmax(0,1fr)]">
+        <div className="lg:sticky lg:top-24 lg:self-start">
+          <WhatsAppSimulator
+            className={roboto.variable}
+            conversationId={convo.id}
+            businessName="CV Arba'in Jaya Mandiri"
+            messages={chat}
+            clock={timeLabel(now)}
+            animateIntro={animateIntro}
+            suggestions={SUGGESTIONS}
+          />
         </div>
 
-        {/* Qualification + actions */}
-        <div className="space-y-6">
-          <Card>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-foreground">Status Lead</h3>
-              <Badge className={leadStatusColors[convo.leadStatus]}>
-                {leadStatusLabels[convo.leadStatus]}
-              </Badge>
+        <div className="space-y-5">
+          {convo.handoffRequested && (
+            <Alert tone="warning" icon={PiHandshake} title="Human handoff aktif">
+              Percakapan ini sudah diteruskan ke tim sales. AI tidak lagi membalas otomatis.
+            </Alert>
+          )}
+
+          <Card className="animate-fade-up">
+            <div className="flex flex-wrap items-center gap-4">
+              <Avatar name={name} color={avatarColor(convo.id)} size="lg" />
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-[22px] font-semibold tracking-[-0.02em] text-ink">{name}</h1>
+                <p className="mt-0.5 inline-flex items-center gap-1.5 text-[12.5px] text-muted">
+                  <PiPhone className="size-3.5" />
+                  {convo.contactPhone || "Nomor belum diisi"}
+                </p>
+              </div>
             </div>
+            <dl className="mt-5 grid grid-cols-3 gap-3">
+              <MiniStat icon={PiLightning} label="Respons AI pertama" value={formatMs(convo.firstResponseMs)} />
+              <MiniStat icon={PiChatCircleDots} label="Pesan" value={convo.messages.length} />
+              <MiniStat icon={PiListChecks} label="Kriteria terisi" value={`${filled}/${QUAL_FIELDS.length}`} />
+            </dl>
+          </Card>
+
+          <Card className="animate-fade-up" style={{ animationDelay: "60ms" }}>
+            <CardHeader
+              icon={PiTag}
+              title="Status lead"
+              action={
+                <Badge dot className={leadStatusColors[convo.leadStatus]}>
+                  {leadStatusLabels[convo.leadStatus]}
+                </Badge>
+              }
+              className="mb-4"
+            />
             <form action={setLeadStatus} className="flex gap-2">
               <input type="hidden" name="conversationId" value={convo.id} />
-              <select name="leadStatus" defaultValue={convo.leadStatus} className={inputClass}>
+              <select name="leadStatus" defaultValue={convo.leadStatus} className={selectClass}>
                 {LEAD_STATUSES.map((s) => (
                   <option key={s} value={s}>{leadStatusLabels[s]}</option>
                 ))}
               </select>
-              <button className={buttonClass("secondary")}>Set</button>
+              <SubmitButton variant="secondary" className="h-11">
+                Set
+              </SubmitButton>
             </form>
           </Card>
 
-          <Card>
-            <h3 className="mb-1 text-base font-semibold text-foreground">Kualifikasi Kebutuhan</h3>
-            <p className="mb-3 text-xs text-muted">
-              Isi sinyal yang terkumpul. Status lead & ringkasan dihitung otomatis.
-            </p>
-            <form action={updateQualification} className="space-y-3">
+          <Card className="animate-fade-up" style={{ animationDelay: "120ms" }}>
+            <CardHeader
+              icon={PiListChecks}
+              title="Kualifikasi kebutuhan"
+              description="Isi sinyal yang terkumpul. Status lead & ringkasan dihitung otomatis."
+            />
+            <div className="mb-5 flex items-center gap-3">
+              <Meter value={filled} max={QUAL_FIELDS.length} color="#12a150" label="Kriteria terisi" />
+              <span className="shrink-0 text-[12px] font-semibold text-ink tabular-nums">
+                {filled}/{QUAL_FIELDS.length} terisi
+              </span>
+            </div>
+            <form action={updateQualification} className="space-y-4">
               <input type="hidden" name="conversationId" value={convo.id} />
-              {QUAL_FIELDS.map((f) => (
-                <div key={f.key}>
-                  <label className={labelClass}>{f.label}</label>
-                  <input
-                    name={f.key}
-                    defaultValue={signals[f.key] ?? ""}
-                    className={inputClass}
-                    placeholder={f.placeholder}
-                  />
-                </div>
-              ))}
-              <button className={`${buttonClass("primary")} w-full`}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {QUAL_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <label htmlFor={f.key} className={labelClass}>{f.label}</label>
+                    <input
+                      id={f.key}
+                      name={f.key}
+                      defaultValue={signals[f.key] ?? ""}
+                      className={inputClass}
+                      placeholder={f.placeholder}
+                    />
+                  </div>
+                ))}
+              </div>
+              <SubmitButton icon={<PiListChecks />} className="w-full" size="lg">
                 Perbarui Kualifikasi
-              </button>
+              </SubmitButton>
             </form>
           </Card>
 
           {convo.needsSummary && (
-            <Card>
-              <h3 className="mb-2 text-base font-semibold text-foreground">Ringkasan untuk Sales</h3>
-              <pre className="whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-foreground">
+            <Card className="animate-fade-up" style={{ animationDelay: "160ms" }}>
+              <CardHeader icon={PiClipboardText} title="Ringkasan untuk sales" />
+              <pre className="whitespace-pre-wrap rounded-2xl bg-surface-2 p-4 font-sans text-[13px] leading-relaxed text-ink ring-1 ring-line">
                 {convo.needsSummary}
               </pre>
             </Card>
           )}
 
-          <Card>
-            <h3 className="mb-3 text-base font-semibold text-foreground">Tindakan</h3>
-            <div className="space-y-3">
+          <Card className="animate-fade-up" style={{ animationDelay: "200ms" }}>
+            <CardHeader icon={PiHandshake} title="Tindakan" />
+            <div className="space-y-4">
               {!convo.handoffRequested && (
                 <form action={requestHandoff}>
                   <input type="hidden" name="conversationId" value={convo.id} />
                   <input type="hidden" name="reason" value="Diteruskan ke sales untuk konsultasi." />
-                  <button className={`${buttonClass("secondary")} w-full`}>
-                    🤝 Teruskan ke Sales (Handoff)
-                  </button>
+                  <SubmitButton variant="secondary" icon={<PiHandshake />} className="w-full">
+                    Teruskan ke Sales (Handoff)
+                  </SubmitButton>
                 </form>
               )}
-              <form action={scheduleMeeting} className="space-y-2 border-t border-border pt-3">
+              <form action={scheduleMeeting} className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
                 <input type="hidden" name="conversationId" value={convo.id} />
-                <input type="hidden" name="title" value={`Konsultasi — ${convo.contactName || "Calon klien"}`} />
-                <label className={labelClass}>Jadwalkan konsultasi</label>
-                <input name="scheduledAt" type="datetime-local" required className={inputClass} />
-                <button className={`${buttonClass("primary")} w-full`}>📅 Jadwalkan Meeting</button>
+                <input type="hidden" name="title" value={`Konsultasi — ${name}`} />
+                <label htmlFor="scheduledAt" className={labelClass}>Jadwalkan konsultasi</label>
+                <DateTimePicker id="scheduledAt" name="scheduledAt" required />
+                <SubmitButton icon={<PiCalendarPlus />} className="w-full">
+                  Jadwalkan Meeting
+                </SubmitButton>
               </form>
             </div>
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MiniStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: IconType;
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-2xl bg-surface-2 px-3.5 py-3 ring-1 ring-line">
+      <dt className="flex items-center gap-1.5 truncate text-[11px] font-medium text-muted">
+        <Icon className="size-3.5 shrink-0" />
+        {label}
+      </dt>
+      <dd className="mt-1 truncate text-[17px] font-semibold tracking-[-0.02em] text-ink">{value}</dd>
     </div>
   );
 }

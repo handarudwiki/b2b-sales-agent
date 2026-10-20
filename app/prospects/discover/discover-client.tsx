@@ -3,11 +3,43 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  PiCheckCircle,
+  PiCircleNotch,
+  PiCrosshair,
+  PiEnvelope,
+  PiFlask,
+  PiGauge,
+  PiGlobe,
+  PiInfo,
+  PiMagnifyingGlass,
+  PiMapPin,
+  PiPhone,
+  PiSquaresFour,
+  PiTag,
+  PiTrayArrowDown,
+  PiWarningCircle,
+} from "react-icons/pi";
+import {
   discoverProspects,
   saveDiscoveredProspects,
   type DiscoveryActionResult,
 } from "@/app/actions";
-import { Card, Badge, buttonClass, inputClass, labelClass } from "@/components/ui";
+import {
+  Alert,
+  Avatar,
+  Badge,
+  Card,
+  EmptyState,
+  Field,
+  Meter,
+  buttonClass,
+  checkboxClass,
+  cn,
+  inputClass,
+  selectClass,
+} from "@/components/ui";
+import { useTopLoaderWhile } from "@/components/top-loader";
+import { scoreColor, segmentColor, segmentIcon } from "@/components/tokens";
 import { segmentLabels } from "@/lib/labels";
 import { scoreBand } from "@/lib/prospecting";
 import type { BusinessSegment } from "@prisma/client";
@@ -25,6 +57,7 @@ export function DiscoverClient({
   const [message, setMessage] = useState<string | null>(null);
   const [searching, startSearch] = useTransition();
   const [saving, startSave] = useTransition();
+  useTopLoaderWhile(searching || saving);
 
   function handleSearch(formData: FormData) {
     setError(null);
@@ -43,7 +76,6 @@ export function DiscoverClient({
         return;
       }
       setResult(res);
-      // Preselect qualified + not-already-in-pipeline candidates.
       const preset: Record<string, boolean> = {};
       for (const c of res.candidates ?? []) {
         preset[c.dedupeKey] = c.qualified && !c.alreadyInPipeline;
@@ -90,119 +122,180 @@ export function DiscoverClient({
   ).length;
 
   return (
-    <div className="space-y-6">
-      {/* ICP form */}
-      <Card>
-        <form action={handleSearch} className="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
-          <div>
-            <label className={labelClass}>Segmen (ICP)</label>
-            <select name="segment" defaultValue={icp.segment} className={inputClass}>
+    <div className="space-y-5">
+      <Card className="animate-fade-up">
+        <form action={handleSearch} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1.2fr_0.8fr_auto] xl:items-end">
+          <Field label="Segmen (ICP)" icon={PiSquaresFour}>
+            <select name="segment" defaultValue={icp.segment} className={selectClass}>
               {segments.map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className={labelClass}>Daerah *</label>
+          </Field>
+          <Field label="Daerah *" icon={PiMapPin}>
             <input name="area" required defaultValue={icp.area} className={inputClass} placeholder="mis. Bandung" />
-          </div>
-          <div>
-            <label className={labelClass}>Kata kunci (koma)</label>
+          </Field>
+          <Field label="Kata kunci (koma)" icon={PiTag}>
             <input name="keywords" defaultValue={icp.keywords} className={inputClass} placeholder="skincare, anti-aging" />
-          </div>
-          <div>
-            <label className={labelClass}>Min. skor kualifikasi</label>
+          </Field>
+          <Field label="Min. skor kualifikasi" icon={PiGauge}>
             <input name="minScore" type="number" min={0} max={100} defaultValue={icp.minScore} className={inputClass} />
-          </div>
-          <button className={buttonClass("primary")} disabled={searching}>
-            {searching ? "Mencari..." : "🔍 Cari Prospek"}
+          </Field>
+          <button className={cn(buttonClass("accent", "lg"), "h-11 md:col-span-2 xl:col-span-1")} disabled={searching}>
+            {searching ? <PiCircleNotch className="animate-spin" /> : <PiMagnifyingGlass />}
+            {searching ? "Mencari..." : "Cari Prospek"}
           </button>
         </form>
       </Card>
 
-      {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
-      {message && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</p>}
+      {error && <Alert tone="danger">{error}</Alert>}
+      {message && <Alert tone="success">{message}</Alert>}
 
-      {/* Results */}
+      {searching && !result && <ResultsSkeleton />}
+
+      {!searching && !result && !message && (
+        <EmptyState
+          icon={PiCrosshair}
+          title="Belum ada pencarian"
+          description="Pilih segmen dan daerah target, lalu jalankan pencarian untuk melihat kandidat yang sudah dinilai."
+        />
+      )}
+
       {result && (
-        <Card className="p-0">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
-            <div className="flex items-center gap-3">
-              <h3 className="text-base font-semibold text-foreground">
-                {result.found} kandidat · {result.qualified} memenuhi ambang
-              </h3>
-              {result.isSimulated && (
-                <Badge className="bg-amber-100 text-amber-700">MODE SIMULASI</Badge>
-              )}
+        <Card className="animate-fade-up overflow-hidden p-0 sm:p-0">
+          <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h3 className="text-[16px] font-semibold tracking-[-0.01em] text-ink">
+                  {result.found} kandidat ditemukan
+                </h3>
+                {result.isSimulated && (
+                  <Badge icon={PiFlask} className="bg-amber-100 text-amber-800">
+                    Mode simulasi
+                  </Badge>
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge dot className="bg-emerald-100 text-emerald-800">{result.qualified} memenuhi ambang</Badge>
+                <Badge dot className="bg-sky-100 text-sky-800">{result.newCount} baru</Badge>
+                <Badge dot>{result.duplicates} sudah di pipeline</Badge>
+              </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-sm text-muted">{selectedCount} dipilih</span>
+              <span className="text-[12.5px] text-muted">
+                <span className="font-semibold text-ink">{selectedCount}</span> dipilih
+              </span>
               <button
                 onClick={handleSave}
                 disabled={saving || selectedCount === 0}
                 className={buttonClass("primary")}
               >
+                {saving ? <PiCircleNotch className="animate-spin" /> : <PiTrayArrowDown />}
                 {saving ? "Menyimpan..." : `Simpan ${selectedCount} ke Pipeline`}
               </button>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-225 text-left text-[13px]">
               <thead>
-                <tr className="border-b border-border bg-slate-50 text-left text-xs uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3 font-medium"></th>
-                  <th className="px-4 py-3 font-medium">Perusahaan</th>
+                <tr className="border-b border-line bg-surface-2 text-[11.5px] text-muted">
+                  <th className="w-12 px-5 py-3 font-medium" />
+                  <th className="px-3 py-3 font-medium">Perusahaan</th>
                   <th className="px-4 py-3 font-medium">Segmen</th>
                   <th className="px-4 py-3 font-medium">Skor</th>
                   <th className="px-4 py-3 font-medium">Kualifikasi</th>
                   <th className="px-4 py-3 font-medium">Kontak</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-line">
                 {candidates.map((c) => {
                   const band = scoreBand(c.score);
+                  const checked = !!selected[c.dedupeKey];
                   return (
                     <tr
                       key={c.dedupeKey}
-                      className={`border-b border-border last:border-0 ${
-                        c.alreadyInPipeline ? "opacity-50" : "hover:bg-slate-50"
-                      }`}
+                      className={cn(
+                        "transition-colors",
+                        c.alreadyInPipeline ? "opacity-50" : "hover:bg-surface-2/70",
+                        checked && !c.alreadyInPipeline && "bg-lime-soft/40",
+                      )}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-3">
                         <input
                           type="checkbox"
-                          checked={!!selected[c.dedupeKey]}
+                          aria-label={`Pilih ${c.companyName}`}
+                          checked={checked}
                           disabled={c.alreadyInPipeline}
                           onChange={() => toggle(c.dedupeKey)}
+                          className={checkboxClass}
                         />
                       </td>
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-foreground">{c.companyName}</p>
-                        <p className="text-xs text-muted">{c.location}</p>
-                        {c.isIncomplete && (
-                          <span className="text-xs text-amber-600">⚠ data belum lengkap</span>
-                        )}
-                        {c.alreadyInPipeline && (
-                          <span className="ml-1 text-xs text-slate-500">· sudah ada</span>
-                        )}
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={c.companyName} color={segmentColor[c.segment]} icon={segmentIcon[c.segment]} size="sm" />
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-ink">{c.companyName}</p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted">
+                              {c.location && (
+                                <span className="inline-flex items-center gap-1">
+                                  <PiMapPin className="size-3.5" />
+                                  {c.location}
+                                </span>
+                              )}
+                              {c.isIncomplete && (
+                                <span className="inline-flex items-center gap-1 font-medium text-amber-700">
+                                  <PiWarningCircle className="size-3.5" />
+                                  Belum lengkap
+                                </span>
+                              )}
+                              {c.alreadyInPipeline && <span className="font-medium text-ink-2">Sudah ada</span>}
+                            </div>
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-foreground">{segmentLabels[c.segment]}</td>
+                      <td className="px-4 py-3 text-ink-2">
+                        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                          <span className="size-2 rounded-full" style={{ backgroundColor: segmentColor[c.segment] }} />
+                          {segmentLabels[c.segment]}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">{c.score}</span>
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-7 text-[14px] font-semibold text-ink tabular-nums">{c.score}</span>
+                          <Meter value={c.score} color={scoreColor(c.score)} className="h-1.5 w-16" label={band.label} />
                           <Badge className={band.color}>{band.label}</Badge>
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         {c.qualified ? (
-                          <Badge className="bg-emerald-100 text-emerald-700">Qualified</Badge>
+                          <Badge icon={PiCheckCircle} className="bg-emerald-100 text-emerald-800">Qualified</Badge>
                         ) : (
                           <Badge className="bg-slate-100 text-slate-600">Di bawah ambang</Badge>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-muted">
-                        {[c.website, c.email, c.phone].filter(Boolean).join(" · ") || "—"}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1 text-[11.5px] text-ink-2">
+                          {c.website && (
+                            <span className="inline-flex items-center gap-1.5">
+                              <PiGlobe className="size-3.5 text-muted" />
+                              {c.website}
+                            </span>
+                          )}
+                          {c.email && (
+                            <span className="inline-flex items-center gap-1.5">
+                              <PiEnvelope className="size-3.5 text-muted" />
+                              {c.email}
+                            </span>
+                          )}
+                          {c.phone && (
+                            <span className="inline-flex items-center gap-1.5">
+                              <PiPhone className="size-3.5 text-muted" />
+                              {c.phone}
+                            </span>
+                          )}
+                          {!c.website && !c.email && !c.phone && <span className="text-muted">—</span>}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -211,15 +304,38 @@ export function DiscoverClient({
             </table>
           </div>
 
-          <div className="border-t border-border bg-slate-50 px-5 py-3">
-            <p className="text-xs text-muted">
+          <div className="flex gap-2.5 border-t border-line bg-surface-2 px-5 py-3.5 sm:px-6">
+            <PiInfo className="mt-0.5 size-4 shrink-0 text-muted" />
+            <p className="text-[12px] leading-relaxed text-muted">
               {result.isSimulated
-                ? "Hasil mode simulasi diberi label jelas dan tidak boleh diklaim sebagai data nyata. Setiap prospek disimpan dengan sumber dan tanggal verifikasi (BR#2). Hubungkan provider data resmi untuk hasil produksi."
+                ? "Hasil mode simulasi diberi label jelas dan tidak boleh diklaim sebagai data nyata. Setiap prospek disimpan dengan sumber dan tanggal verifikasi. Hubungkan provider data resmi untuk hasil produksi."
                 : "Setiap prospek disimpan dengan sumber dan tanggal verifikasi."}
             </p>
           </div>
         </Card>
       )}
     </div>
+  );
+}
+
+function ResultsSkeleton() {
+  return (
+    <Card className="overflow-hidden p-0 sm:p-0">
+      <div className="border-b border-line px-6 py-5">
+        <div className="h-4 w-48 animate-pulse rounded-full bg-surface-2" />
+        <div className="mt-3 h-3 w-72 animate-pulse rounded-full bg-surface-2" />
+      </div>
+      <div className="divide-y divide-line">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 px-6 py-4">
+            <div className="size-5 animate-pulse rounded-md bg-surface-2" />
+            <div className="size-8 animate-pulse rounded-full bg-surface-2" />
+            <div className="h-3 flex-1 animate-pulse rounded-full bg-surface-2" style={{ animationDelay: `${i * 80}ms` }} />
+            <div className="h-3 w-24 animate-pulse rounded-full bg-surface-2" />
+            <div className="h-3 w-32 animate-pulse rounded-full bg-surface-2" />
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
